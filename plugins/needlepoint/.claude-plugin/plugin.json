@@ -1,6 +1,6 @@
 {
   "name": "needlepoint",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Lossless precision context: explore and edit code with far fewer tokens and no loss of accuracy. Ranked symbol search, exact symbol reads, full-coverage outlines, one-shot task packs, re-read dedupe/diffs, lossless log condensing, hash-anchored notes.",
   "author": {
     "name": "Tushar"

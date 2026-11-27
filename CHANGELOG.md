@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.1 — 2026-11-27 (Windows PowerShell + map quality)
+- **PowerShell launcher** `scripts/ndl.ps1` (and `ndl.cmd` for cmd.exe). On Windows the SessionStart context now gives its full path, because `ndl` is only on PATH in Bash. Arguments like `'status|tuple'` reach ndl unchanged.
+- **`map` ranks each file's symbols** by size, docs, in-file use and visibility instead of listing them in file order, so big entry points come before small private helpers.
+- Fixed: editing a file reset its centrality to 0 (both backends), so the file you were working on dropped out of `map` and lost its search boost until the next big reindex.
+- Fixed: `ndl run cmd "arg with spaces"` joined arguments without quoting. One argument is still run as a shell string; several are now quoted individually.
+- Tests no longer inherit a live session's `NDL_SESSION`. `.gitattributes` keeps scripts LF and `.cmd` files CRLF. Tests 38 → 46.
+
 ## 0.3.0 — 2026-11-22 (cross-platform + 16-language + scale hardening)
 - **Portable launcher** `ndl` on PATH via SessionStart. It works in zsh (macOS's default shell doesn't word-split `$NDL`), bash, dash and Git Bash, and picks python3, python or py. Hooks use it too.
 - **SQLite index and search** (JSON fallback). VS Code-size repos: `show` 3.2s → 0.30s, memory 785 → 44 MB, refresh after an edit 51s → 0.44s. Incremental search overlay: `find` after an edit 20s → 0.8s.

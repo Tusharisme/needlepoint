@@ -8,6 +8,9 @@ SCRIPT = os.path.join(HERE, "..", "plugins", "needlepoint", "skills", "needlepoi
 sys.path.insert(0, os.path.dirname(SCRIPT))
 import ndl  # noqa: E402
 
+for _v in ("NDL_SESSION", "NDL"):  # a live Claude Code session's dedupe state must not leak into the tests
+    os.environ.pop(_v, None)
+
 FILES = {
     "app/server.py": '''
         """HTTP server for the demo app."""
@@ -518,6 +521,105 @@ class TestPlatform(unittest.TestCase):
         out = run_cli(self.root, "find", "backoff", env={"XDG_CACHE_HOME": cache})
         self.assertIn("retry_with_backoff", out)
         self.assertTrue(os.path.isdir(os.path.join(cache, "needlepoint")))
+
+
+class TestMapAndCentrality(unittest.TestCase):
+    def test_map_ranks_substantial_symbols_first(self):
+        root = mkrepo()
+        try:
+            body = "def _tiny():\n    return 1\n\n"
+            body += 'def handle_request(req):\n    """Route a request to its handler."""\n' + "".join("    x%d = _tiny()\n" % i for i in range(30))
+            body += "\ndef _other():\n    pass\n"
+            with open(os.path.join(root, "app", "big.py"), "w") as f: f.write(body)
+            idx, _ = ndl.build_index(root)
+            tops = [s[0] for s in ndl.map_top_symbols(root, "app/big.py", idx.files["app/big.py"], 10)]
+            self.assertEqual(tops[0], "handle_request", tops)       # file order would put _tiny first
+            self.assertEqual(sorted(tops), ["_other", "_tiny", "handle_request"])  # nothing dropped
+            rm_repo(root, idx)
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
+    def _pr_survives_small_edit(self):
+        root = mkrepo()
+        try:
+            idx, _ = ndl.build_index(root)
+            before = idx.files["app/server.py"]["pr"]
+            self.assertGreater(before, 0)
+            if getattr(idx, "con", None) is not None: idx.con.close()
+            with open(os.path.join(root, "app", "server.py"), "a") as f: f.write("\ndef added_later():\n    return 2\n")
+            idx, n = ndl.build_index(root)
+            self.assertEqual(n, 1)                                  # incremental: only the edited file re-parsed
+            self.assertIn("added_later", [s[0] for s in idx.files["app/server.py"]["s"]])
+            self.assertEqual(idx.files["app/server.py"]["pr"], before)
+            rm_repo(root, idx)
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
+    def test_edit_keeps_centrality_sqlite(self):
+        self._pr_survives_small_edit()
+
+    def test_edit_keeps_centrality_json(self):
+        saved = ndl.sqlite3
+        try:
+            ndl.sqlite3 = None; ndl._SEARCH.clear()
+            self._pr_survives_small_edit()
+        finally:
+            ndl.sqlite3 = saved; ndl._SEARCH.clear()
+
+
+class TestRunQuoting(unittest.TestCase):
+    def test_shell_command(self):
+        self.assertEqual(ndl.shell_command(["pytest -q | tail -3"]), "pytest -q | tail -3")   # one arg: shell string
+        cmd = ndl.shell_command([sys.executable, "-c", "import sys; sys.exit(3)"])
+        self.assertEqual(subprocess.run(cmd, shell=True).returncode, 3)
+
+    def test_run_keeps_arguments_and_exit_code(self):
+        root = mkrepo()
+        try:
+            r = subprocess.run([sys.executable, "-I", SCRIPT, "--root", root, "run", sys.executable, "-c",
+                                "import sys; print('a b'); sys.exit(3)"], capture_output=True, text=True, encoding="utf-8", errors="replace")
+            self.assertEqual(r.returncode, 3, r.stdout + r.stderr)
+            self.assertIn("a b", r.stdout)
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
+
+@unittest.skipUnless(os.name == "nt", "Windows launchers")
+class TestWindowsLaunchers(unittest.TestCase):
+    PS1 = os.path.abspath(os.path.join(os.path.dirname(SCRIPT), "ndl.ps1"))
+    CMD = os.path.abspath(os.path.join(os.path.dirname(SCRIPT), "ndl.cmd"))
+
+    def setUp(self):
+        self.root = mkrepo()
+        self.ps = shutil.which("pwsh") or shutil.which("powershell")
+        if not self.ps: self.skipTest("no PowerShell")
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def pwsh(self, line):
+        return subprocess.run([self.ps, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", line],
+                              capture_output=True, text=True, encoding="utf-8", errors="replace")
+
+    def test_ps1_passes_special_args_and_exit_code(self):
+        r = self.pwsh("& '%s' grep 'MAX_RETRIES|retries' --root '%s'; exit $LASTEXITCODE" % (self.PS1, self.root))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("MAX_RETRIES", r.stdout)                     # '|' reached the regex, not cmd.exe
+        r = self.pwsh("& '%s' find 'exponential backoff' --root '%s'" % (self.PS1, self.root))
+        self.assertIn("retry_with_backoff", r.stdout, r.stderr)
+        r = self.pwsh("& '%s' run false --root '%s' *> $null; exit $LASTEXITCODE" % (self.PS1, self.root))
+        self.assertNotEqual(r.returncode, 0)
+
+    def test_cmd_launcher(self):
+        r = subprocess.run([self.CMD, "show", "Store.Get", "--root", self.root], capture_output=True, text=True, encoding="utf-8", errors="replace")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("func (s *Store) Get", r.stdout)
+        with open(self.CMD, "rb") as f: self.assertIn(b"\r\n", f.read())   # batch labels need CRLF
+
+    def test_session_start_points_powershell_at_ps1(self):
+        d = hook(self.root, "session-start", {"source": "startup"})
+        self.assertIn(self.PS1, d["additionalContext"])
+        self.assertTrue(os.path.isfile(self.PS1))
 
 
 class TestLanguageRegressions(unittest.TestCase):

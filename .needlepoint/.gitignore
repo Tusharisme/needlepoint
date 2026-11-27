@@ -1,0 +1,4 @@
+# needlepoint state. notes.json is meant to be shared with your team.
+*
+!.gitignore
+!notes.json

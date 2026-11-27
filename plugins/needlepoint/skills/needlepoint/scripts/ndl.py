@@ -15,7 +15,7 @@ except ImportError:  # some minimal Python builds (e.g. pyenv without libsqlite3
     sqlite3 = None
 if os.environ.get("NDL_NO_SQLITE"): sqlite3 = None   # force the JSON backend (testing)
 
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 STATE = ".needlepoint"
 IDX_VER = 21
 MAX_BYTES = 1_500_000
@@ -701,6 +701,10 @@ def build_index(root, quiet=True, force=False):
     parsed = {rel: rec for rel, rec in res if rec is not None}
     with con:
         con.execute("BEGIN IMMEDIATE")
+        old_pr = {}   # small changes skip PageRank below, so an edited file keeps its centrality instead of dropping to 0
+        for rel, _ in todo:
+            row = con.execute("SELECT pr FROM files WHERE rel = ?", (rel,)).fetchone()
+            if row: old_pr[rel] = row[0] or 0.0
         for rel in removed + [r for r, _ in todo]:
             con.execute("DELETE FROM files WHERE rel = ?", (rel,)); con.execute("DELETE FROM defs WHERE rel = ?", (rel,))
             con.execute("DELETE FROM ids WHERE rel = ?", (rel,)); con.execute("DELETE FROM skip WHERE rel = ?", (rel,))
@@ -710,7 +714,7 @@ def build_index(root, quiet=True, force=False):
             if rec is None:
                 con.execute("INSERT OR REPLACE INTO skip VALUES (?,?,?)", (rel, st.st_mtime_ns, st.st_size)); continue
             ids = rec.pop("i", [])
-            con.execute("INSERT OR REPLACE INTO files VALUES (?,?,?,?,?)", (rel, st.st_mtime_ns, st.st_size, 0.0, json.dumps(rec, separators=(",", ":"))))
+            con.execute("INSERT OR REPLACE INTO files VALUES (?,?,?,?,?)", (rel, st.st_mtime_ns, st.st_size, old_pr.get(rel, 0.0), json.dumps(rec, separators=(",", ":"))))
             con.execute("INSERT OR REPLACE INTO ids VALUES (?,?)", (rel, json.dumps(ids)))
             con.executemany("INSERT INTO defs VALUES (?,?,?,?)", ((sy[0], rel, k, sy[1]) for k, sy in enumerate(rec["s"])))
         nfiles = con.execute("SELECT COUNT(*) FROM files").fetchone()[0]
@@ -779,6 +783,7 @@ def _build_index_json(root, quiet=True, force=False):
             if rec is None:
                 skip[rel] = [stmap[rel].st_mtime_ns, stmap[rel].st_size]; continue
             rec["m"] = stmap[rel].st_mtime_ns; rec["z"] = stmap[rel].st_size
+            if rel in oldf and "pr" in oldf[rel]: rec["pr"] = oldf[rel]["pr"]   # keep centrality across a small edit
             files[rel] = rec
     if not changed and old:
         if skip != olds:
@@ -1325,6 +1330,19 @@ def cmd_index(a):
     print("[ndl] %s: %d files, %d symbols, ~%s tokens of source; %d (re)parsed in %.2fs" %
           (root, len(idx.files), syms, "{:,}".format(toks), n, time.time() - t))
 
+def map_top_symbols(root, rel, r, k):
+    """a file's most important top-level symbols, best first: big, documented, public and used often in the file
+    beat small private helpers. Falls back to file order when the file can't be read."""
+    tops = [s for s in r["s"] if not s[4] and s[1] not in ("var", "key", "step")]
+    if not tops: return [s for s in r["s"] if not s[4]][:min(k, 6)]
+    try: uses = Counter(ID_RX.findall("\n".join(read_lines(root, rel))))
+    except (OSError, UnicodeError): return tops[:k]
+    def score(s):
+        return (math.log1p(s[3] - s[2] + 1) + 0.6 * math.log1p(max(uses.get(s[0], 1) - 1, 0))
+                + (0.8 if len(s) > 6 and s[6] else 0) - (1.0 if s[0].startswith("_") else 0))
+    order = {id(s): i for i, s in enumerate(tops)}
+    return sorted(tops, key=lambda s: (-score(s), order[id(s)]))[:k]
+
 def cmd_map(a):
     idx = get_index(a.root)
     F = idx.files
@@ -1352,8 +1370,7 @@ def cmd_map(a):
     for rel in sorted(F, key=lambda r: -score[r]):
         if score[rel] <= 0 and a.focus: break
         r = F[rel]
-        tops = [s for s in r["s"] if not s[4] and s[1] not in ("var", "key", "step")][:10]
-        if not tops: tops = [s for s in r["s"] if not s[4]][:6]
+        tops = map_top_symbols(idx.root, rel, r, 10)
         line = "%s (%d) %s" % (rel, r["n"], ", ".join(("%s%s" % ({"class": "C:", "type": "T:"}.get(s[1], ""), s[0])) for s in tops))
         if used + tok(line) > budget: break
         out.append(line); used += tok(line) + 1
@@ -1754,9 +1771,17 @@ def save_log(root, text, cmd=""):
     except OSError: pass
     return lid
 
+def shell_command(argv):
+    """one argument is a shell string as written (`ndl run "pytest | tail"`); several are quoted so each survives as one
+    argument (`ndl run python -c "import sys; sys.exit(3)"`)."""
+    if len(argv) == 1: return argv[0]
+    if os.name == "nt": return subprocess.list2cmdline(argv)
+    import shlex
+    return " ".join(shlex.quote(x) for x in argv)
+
 def cmd_run(a):
     root = find_root(a.root)
-    cmd = " ".join(a.command)
+    cmd = shell_command(a.command)
     t = time.time()
     p = subprocess.run(cmd, shell=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
     text = (p.stdout or "") + (("\n[stderr]\n" + p.stderr) if p.stderr else "")
@@ -1929,7 +1954,14 @@ def hook_session_start(h):
     _emit({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext":
            "needlepoint active (precision context). For code exploration prefer `%s find \"<what>\"`, `%s pack \"<task>\"`, "
            "`%s show <Symbol|file:Name|file:A-B>`, `%s outline <file>`, `%s refs <name>` over grep + whole-file Reads. "
-           "Big-file Reads return a full-coverage outline first; unchanged re-Reads are deduped (repeat the identical call to force)." % ((cli,) * 5)}})
+           "Big-file Reads return a full-coverage outline first; unchanged re-Reads are deduped (repeat the identical call to force)." % ((cli,) * 5)
+           + powershell_hint(me)}})
+
+def powershell_hint(me):
+    """on Windows `ndl` is only on PATH in Bash (the env file is a bash script); PowerShell needs the .ps1 launcher's full path."""
+    if os.name != "nt": return ""
+    ps1 = os.path.join(os.path.dirname(os.path.abspath(me)), "ndl.ps1").replace("'", "''")
+    return (" In PowerShell, `ndl` is not on PATH: run `& '%s' <command>` instead (same commands and flags)." % ps1)
 
 def hook_pre_read(h):
     ti = h.get("tool_input") or {}

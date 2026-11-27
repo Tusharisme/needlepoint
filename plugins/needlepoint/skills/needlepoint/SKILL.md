@@ -7,7 +7,8 @@ description: Lossless precision context for code - explore and edit repositories
 
 Most of a coding session's tokens go to text that is never needed: whole files read for one function, grep floods, re-reads of unchanged code, 800-line test logs. needlepoint stops those tokens *entering* context instead of compressing what's there, so nothing you rely on is paraphrased or lost.
 
-**CLI:** `ndl <command>` (the plugin puts it on PATH; `$NDL` works too). If `ndl` isn't found, use `sh <this-skill-dir>/scripts/ndl <command>`. The index builds and refreshes itself incrementally. A first build takes seconds on a typical repo, or about 1.5 minutes on a 20k-file monorepo.
+**CLI:** `ndl <command>` (the plugin puts it on PATH; `$NDL` works too). If `ndl` isn't found (the plugin was installed mid-session, so the SessionStart hook hasn't run yet), use `sh <this-skill-dir>/scripts/ndl <command>`. In PowerShell on Windows `ndl` is never on PATH: run `& '<this-skill-dir>\scripts
+dl.ps1' <command>` (`ndl.cmd` serves cmd.exe). The index builds and refreshes itself incrementally. A first build takes seconds on a typical repo, or about 1.5 minutes on a 20k-file monorepo.
 
 ## Workflow
 
