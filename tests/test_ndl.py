@@ -109,16 +109,28 @@ def mkrepo():
     return d
 
 
+def rm_repo(root, *idxs):
+    """close sqlite handles first: Windows cannot delete an open index.db."""
+    import gc
+    for i in idxs:
+        if getattr(i, "con", None) is not None: i.con.close()
+    for sr in list(getattr(ndl, "_SEARCH", {}).values()):
+        if getattr(sr, "con", None) is not None: sr.con.close()
+    getattr(ndl, "_SEARCH", {}).clear()
+    gc.collect()
+    shutil.rmtree(root)
+
+
 def run_cli(root, *args, env=None):
     e = dict(os.environ); e.update(env or {})
-    r = subprocess.run([sys.executable, "-I", SCRIPT, "--root", root] + list(args), capture_output=True, text=True, env=e)
+    r = subprocess.run([sys.executable, "-I", SCRIPT, "--root", root] + list(args), capture_output=True, text=True, encoding="utf-8", errors="replace", env=e)
     return r.stdout + r.stderr
 
 
 def hook(root, event, payload, env=None):
     e = dict(os.environ, NDL_NO_WARM="1"); e.update(env or {})
     payload.setdefault("cwd", root); payload.setdefault("session_id", "T")
-    r = subprocess.run([sys.executable, "-I", SCRIPT, "hook", event], input=json.dumps(payload), capture_output=True, text=True, env=e)
+    r = subprocess.run([sys.executable, "-I", SCRIPT, "hook", event], input=json.dumps(payload), capture_output=True, text=True, encoding="utf-8", errors="replace", env=e)
     assert r.returncode == 0, r.stderr
     return json.loads(r.stdout)["hookSpecificOutput"] if r.stdout.strip() else None
 
@@ -131,7 +143,7 @@ class TestParsing(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        shutil.rmtree(cls.root)
+        rm_repo(cls.root, cls.idx)
 
     def syms(self, rel):
         return {self.idx.qname(s): (s[1], s[2], s[3]) for s in self.idx.files[rel]["s"]}
@@ -195,7 +207,7 @@ class TestRetrieval(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        shutil.rmtree(cls.root)
+        rm_repo(cls.root, cls.idx)
 
     def top(self, q):
         _, rel, si = ndl.search(self.idx, q, k=1)[0]
@@ -386,7 +398,7 @@ class TestHooks(unittest.TestCase):
                                                         "tool_response": {"stdout": out, "stderr": ""}}))
 
     def test_hooks_fail_open(self):
-        r = subprocess.run([sys.executable, "-I", SCRIPT, "hook", "pre-read"], input="not json", capture_output=True, text=True)
+        r = subprocess.run([sys.executable, "-I", SCRIPT, "hook", "pre-read"], input="not json", capture_output=True, text=True, encoding="utf-8", errors="replace")
         self.assertEqual(r.returncode, 0)
         self.assertEqual(r.stdout.strip(), "")
 
@@ -414,7 +426,7 @@ class TestPlatform(unittest.TestCase):
         envf = os.path.join(self.tmp, "env file")
         payload = json.dumps({"session_id": "P1", "cwd": self.root})
         subprocess.run([sys.executable, "-I", script, "hook", "session-start"], input=payload, capture_output=True,
-                       text=True, env=dict(os.environ, CLAUDE_ENV_FILE=envf, NDL_NO_WARM="1"), check=True)
+                       text=True, encoding="utf-8", errors="replace", env=dict(os.environ, CLAUDE_ENV_FILE=envf, NDL_NO_WARM="1"), check=True)
         return envf
 
     @unittest.skipIf(os.name == "nt", "POSIX shells/symlinks")
@@ -423,7 +435,7 @@ class TestPlatform(unittest.TestCase):
         for sh in ("bash", "dash", "sh"):
             if not shutil.which(sh): continue
             for cmd in ('ndl find "exponential backoff"', '$NDL find "exponential backoff"'):
-                r = subprocess.run([sh, "-c", '. "%s" && cd "%s" && %s' % (envf, self.root, cmd)], capture_output=True, text=True)
+                r = subprocess.run([sh, "-c", '. "%s" && cd "%s" && %s' % (envf, self.root, cmd)], capture_output=True, text=True, encoding="utf-8", errors="replace")
                 self.assertIn("retry_with_backoff", r.stdout, (sh, cmd, r.stderr))
 
     @unittest.skipIf(os.name == "nt", "POSIX shells/symlinks")
@@ -431,7 +443,7 @@ class TestPlatform(unittest.TestCase):
         d = os.path.join(self.tmp, "plug ins", "nëedle", "scripts")
         shutil.copytree(os.path.dirname(SCRIPT), d)
         envf = self._envfile(os.path.join(d, "ndl.py"))
-        r = subprocess.run(["bash", "-c", '. "%s" && cd "%s" && ndl show Store.Get' % (envf, self.root)], capture_output=True, text=True)
+        r = subprocess.run(["bash", "-c", '. "%s" && cd "%s" && ndl show Store.Get' % (envf, self.root)], capture_output=True, text=True, encoding="utf-8", errors="replace")
         self.assertIn("func (s *Store) Get", r.stdout, r.stderr)
 
     def _bare_path(self, keep):
@@ -494,7 +506,7 @@ class TestPlatform(unittest.TestCase):
 
     def test_concurrent_cold_indexing(self):
         procs = [subprocess.Popen([sys.executable, "-I", SCRIPT, "--root", self.root, "find", "backoff"],
-                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) for _ in range(8)]
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace") for _ in range(8)]
         for p in procs:
             out, err = p.communicate(timeout=120)
             self.assertEqual(p.returncode, 0, err)
@@ -562,7 +574,7 @@ class TestConcurrencyStress(unittest.TestCase):
                     p = os.path.join(root, "app", "gen%d.py" % i)
                     with open(p, "w") as f: f.write("def generated_backoff_%d():\n    return %d\n" % (i, i))
                 procs.append(subprocess.Popen([sys.executable, "-I", SCRIPT, "--root", root, "find", "exponential backoff"],
-                                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True))
+                                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace"))
             for p in procs:
                 out, err = p.communicate(timeout=120)
                 self.assertEqual(p.returncode, 0, err)
@@ -595,7 +607,7 @@ class TestHooksConfig(unittest.TestCase):
                         if g.get("matcher") == "Bash":
                             pay = dict(pay, tool_name="Bash", tool_input={"command": "make"},
                                        tool_response={"stdout": "ok\n" * 9000 + "ERROR: x\n", "stderr": "", "interrupted": False, "isImage": False})
-                        r = subprocess.run(h["command"], shell=True, input=json.dumps(pay), capture_output=True, text=True, env=env, timeout=h.get("timeout", 30))
+                        r = subprocess.run(h["command"], shell=True, input=json.dumps(pay), capture_output=True, text=True, encoding="utf-8", errors="replace", env=env, timeout=h.get("timeout", 30))
                         self.assertEqual(r.returncode, 0, (event, r.stderr))
                         if r.stdout.strip():
                             out = json.loads(r.stdout)["hookSpecificOutput"]
