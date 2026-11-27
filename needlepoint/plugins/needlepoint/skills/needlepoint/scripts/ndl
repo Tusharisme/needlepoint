@@ -1,0 +1,10 @@
+#!/bin/sh
+# needlepoint launcher. Works from bash, zsh, dash/sh (Linux, macOS) and Git Bash (Windows).
+# Picks the first Python 3 it finds and runs ndl.py in isolated mode (-I), passing all arguments through.
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+script="$here/ndl.py"
+if command -v python3 >/dev/null 2>&1; then exec python3 -I "$script" "$@"; fi
+if command -v python >/dev/null 2>&1; then exec python -I "$script" "$@"; fi
+if command -v py >/dev/null 2>&1; then exec py -3 -I "$script" "$@"; fi
+echo "needlepoint: Python 3.8+ is required but python3/python was not found on PATH" >&2
+exit 127

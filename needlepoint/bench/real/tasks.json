@@ -1,0 +1,10 @@
+[
+ {"repo": "flask", "q": "In this Flask codebase, what is the default value of the SEND_FILE_MAX_AGE_DEFAULT config key? Reply with only the value.", "check": "\\bNone\\b"},
+ {"repo": "flask", "q": "In Flask's default cookie-based session interface, what salt string is used when signing the session cookie? Reply with only the string.", "check": "cookie-session"},
+ {"repo": "flask", "q": "Which method of the Flask app class converts the return value of a view function into a Response object? Reply with only the method name.", "check": "make_response"},
+ {"repo": "flask", "q": "If a Flask view returns a 2-tuple whose second element is a dict, how does Flask interpret that dict: as the status, the headers, or the body? Reply in one short sentence.", "check": "(?i)header"},
+ {"repo": "express", "q": "In this Express codebase, what is the default value of the 'etag' application setting? Reply with only the value.", "check": "(?i)weak"},
+ {"repo": "express", "q": "What HTTP status code does res.redirect use by default in Express? Reply with only the number.", "check": "\\b302\\b"},
+ {"repo": "express", "q": "What is the default value of the 'subdomain offset' setting in Express? Reply with only the value.", "check": "\\b2\\b"},
+ {"repo": "express", "q": "When res.send() is called with a plain JavaScript object (not a Buffer or string), which response method does Express delegate to? Reply with only the method name.", "check": "(?i)\\bjson\\b"}
+]

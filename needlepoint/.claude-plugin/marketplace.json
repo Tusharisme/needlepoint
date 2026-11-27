@@ -1,0 +1,14 @@
+{
+  "name": "needlepoint",
+  "description": "Lossless precision context for Claude Code: cut tokens by not loading what isn't needed, instead of compressing what is.",
+  "owner": {
+    "name": "Tushar"
+  },
+  "plugins": [
+    {
+      "name": "needlepoint",
+      "source": "./plugins/needlepoint",
+      "description": "Ranked symbol search, exact symbol reads, full-coverage outlines, one-shot task packs, re-read dedupe/diffs, lossless log condensing and hash-anchored notes. Zero dependencies."
+    }
+  ]
+}

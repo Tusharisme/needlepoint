@@ -1,0 +1,50 @@
+{
+  "description": "needlepoint: outline-first reads for big files, dedupe/diff for re-reads, lossless condensing of long Bash output. All hooks fail open.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/skills/needlepoint/scripts/ndl\" hook session-start",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/skills/needlepoint/scripts/ndl\" hook pre-read",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/skills/needlepoint/scripts/ndl\" hook post-read",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/skills/needlepoint/scripts/ndl\" hook post-bash",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}

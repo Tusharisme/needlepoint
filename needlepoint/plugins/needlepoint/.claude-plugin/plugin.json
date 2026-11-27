@@ -1,0 +1,20 @@
+{
+  "name": "needlepoint",
+  "version": "0.3.0",
+  "description": "Lossless precision context: explore and edit code with far fewer tokens and no loss of accuracy. Ranked symbol search, exact symbol reads, full-coverage outlines, one-shot task packs, re-read dedupe/diffs, lossless log condensing, hash-anchored notes.",
+  "author": {
+    "name": "Tushar"
+  },
+  "homepage": "https://github.com/Tusharisme/needlepoint",
+  "repository": "https://github.com/Tusharisme/needlepoint",
+  "license": "MIT",
+  "keywords": [
+    "tokens",
+    "context",
+    "context-engineering",
+    "code-search",
+    "efficiency",
+    "repo-map",
+    "hooks"
+  ]
+}
